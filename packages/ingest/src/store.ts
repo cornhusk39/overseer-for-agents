@@ -428,6 +428,26 @@ export class Store {
     tx();
   }
 
+  // Retention: drop every run (and its spans and rollup) that started before
+  // the cutoff. A single-node SQLite store grows without bound otherwise, and
+  // an operator needs a one-command answer to that. Agents rows are kept; they
+  // are tiny and preserve first-seen history.
+  pruneRunsBefore(cutoffMs: number): { runsDeleted: number } {
+    let runsDeleted = 0;
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(`DELETE FROM spans WHERE run_id IN (SELECT id FROM runs WHERE start_ms < ?)`)
+        .run(cutoffMs);
+      this.db
+        .prepare(`DELETE FROM run_rollups WHERE run_id IN (SELECT id FROM runs WHERE start_ms < ?)`)
+        .run(cutoffMs);
+      const info = this.db.prepare(`DELETE FROM runs WHERE start_ms < ?`).run(cutoffMs);
+      runsDeleted = info.changes;
+    });
+    tx();
+    return { runsDeleted };
+  }
+
   listAgents(): Agent[] {
     const rows = this.db
       .prepare(

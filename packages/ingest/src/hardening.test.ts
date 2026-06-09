@@ -220,6 +220,32 @@ describe("cassette re-import", () => {
   });
 });
 
+describe("retention pruning", () => {
+  it("deletes runs, spans, and rollups older than the cutoff", () => {
+    const store = new Store(":memory:");
+    for (const [trace, startMs] of [
+      ["old", 1000],
+      ["new", 50_000],
+    ] as const) {
+      const m = mapRequest(
+        buildOtlpRequest({
+          serviceName: "a",
+          spans: [{ traceId: trace, spanId: "root", name: "run", startMs, endMs: startMs + 10, statusCode: 1 }],
+        }),
+        scrub,
+      );
+      store.ingest({ spans: m.spans, agentByRun: m.agentByRun, receivedAtMs: 1 });
+    }
+    const { runsDeleted } = store.pruneRunsBefore(10_000);
+    expect(runsDeleted).toBe(1);
+    expect(store.getRun("old")).toBeNull();
+    expect(store.getSpans("old")).toHaveLength(0);
+    expect(store.getRollup("old")).toBeNull();
+    expect(store.getRun("new")).not.toBeNull();
+    store.close();
+  });
+});
+
 describe("alert windows and delivery accounting", () => {
   it("excludes running runs from the window and records delivery", async () => {
     const store = new Store(":memory:");

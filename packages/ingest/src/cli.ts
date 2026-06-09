@@ -7,6 +7,7 @@
 //   alert-test                evaluate rules and deliver any firings; if none
 //                             fire, send a synthetic alert to prove the webhook
 //   rules init|list|set       manage alert rules in the configured database
+//   prune --keep-days N       delete runs older than N days (retention)
 //   seed-demo                 fabricate demo traffic and export the snapshot
 
 import { promises as fs } from "node:fs";
@@ -201,6 +202,26 @@ async function rulesCommand(args: string[]): Promise<void> {
   }
 }
 
+// Retention. Deletes every run older than the cutoff, spans and rollups
+// included. Run it from cron at whatever cadence suits the install; SQLite
+// reclaims the space on its own as pages are reused.
+async function pruneCommand(args: string[]): Promise<void> {
+  const flagIndex = args.indexOf("--keep-days");
+  const raw = flagIndex >= 0 ? args[flagIndex + 1] : undefined;
+  const keepDays = Number(raw);
+  if (!raw || !Number.isFinite(keepDays) || keepDays <= 0) {
+    fail("usage: overseer prune --keep-days <N>   (N must be a positive number)");
+  }
+  const store = new Store(dbPath());
+  try {
+    const cutoffMs = Date.now() - keepDays * 24 * 60 * 60 * 1000;
+    const { runsDeleted } = store.pruneRunsBefore(cutoffMs);
+    console.log(`pruned ${runsDeleted} run(s) older than ${keepDays} day(s) from ${dbPath()}`);
+  } finally {
+    store.close();
+  }
+}
+
 // Seed a fresh demo database with synthetic traffic and default alert rules,
 // then export the JSON snapshot the read-only dashboard serves.
 async function seedDemoCommand(): Promise<void> {
@@ -241,11 +262,16 @@ async function main(): Promise<void> {
     case "rules":
       await rulesCommand(args);
       break;
+    case "prune":
+      await pruneCommand(args);
+      break;
     case "seed-demo":
       await seedDemoCommand();
       break;
     default:
-      console.log("usage: overseer <serve | import-cassette <path> | alert-test | rules <init|list|set> | seed-demo>");
+      console.log(
+        "usage: overseer <serve | import-cassette <path> | alert-test | rules <init|list|set> | prune --keep-days N | seed-demo>",
+      );
       process.exitCode = command ? 1 : 0;
   }
 }
