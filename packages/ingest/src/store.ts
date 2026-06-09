@@ -18,6 +18,7 @@ import {
   type RunRollup,
 } from "@overseer/schema";
 import { computeRollup } from "./rollups.js";
+import type { AlertRule, AlertEvent, AlertMetric } from "./alerts.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS agents (
@@ -423,11 +424,123 @@ export class Store {
     }));
   }
 
-  // Exposed so later milestones (rollups, alerts) can run their own statements
-  // without widening this class prematurely.
+  // --- Alert rules and events ---
+
+  upsertAlertRule(rule: AlertRule): void {
+    this.db
+      .prepare(
+        `INSERT INTO alert_rules (id, name, metric, threshold, window_runs, agent, enabled)
+         VALUES (@id, @name, @metric, @threshold, @window_runs, @agent, @enabled)
+         ON CONFLICT (id) DO UPDATE SET
+           name = excluded.name,
+           metric = excluded.metric,
+           threshold = excluded.threshold,
+           window_runs = excluded.window_runs,
+           agent = excluded.agent,
+           enabled = excluded.enabled`,
+      )
+      .run({
+        id: rule.id,
+        name: rule.name,
+        metric: rule.metric,
+        threshold: rule.threshold,
+        window_runs: rule.windowRuns,
+        agent: rule.agent,
+        enabled: rule.enabled ? 1 : 0,
+      });
+  }
+
+  listAlertRules(options: { enabledOnly?: boolean } = {}): AlertRule[] {
+    const where = options.enabledOnly ? "WHERE enabled = 1" : "";
+    const rows = this.db.prepare(`SELECT * FROM alert_rules ${where} ORDER BY name`).all() as AlertRuleRow[];
+    return rows.map(rowToAlertRule);
+  }
+
+  // Timestamp of the most recent firing of a rule, or null if it has never
+  // fired. This is what the cooldown check reads.
+  lastAlertEventMs(ruleId: string): number | null {
+    const row = this.db
+      .prepare(`SELECT MAX(fired_at_ms) AS last FROM alert_events WHERE rule_id = ?`)
+      .get(ruleId) as { last: number | null };
+    return row.last;
+  }
+
+  insertAlertEvent(event: AlertEvent): void {
+    this.db
+      .prepare(
+        `INSERT INTO alert_events (id, rule_id, fired_at_ms, metric, observed, threshold, agent, delivered)
+         VALUES (@id, @rule_id, @fired_at_ms, @metric, @observed, @threshold, @agent, @delivered)`,
+      )
+      .run({
+        id: event.id,
+        rule_id: event.ruleId,
+        fired_at_ms: event.firedAtMs,
+        metric: event.metric,
+        observed: event.observed,
+        threshold: event.threshold,
+        agent: event.agent,
+        delivered: event.delivered ? 1 : 0,
+      });
+  }
+
+  listAlertEvents(limit = 100): AlertEvent[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM alert_events ORDER BY fired_at_ms DESC LIMIT ?`)
+      .all(limit) as AlertEventRow[];
+    return rows.map(rowToAlertEvent);
+  }
+
+  // Exposed so later milestones can run their own statements without widening
+  // this class prematurely.
   get raw(): Database.Database {
     return this.db;
   }
+}
+
+interface AlertRuleRow {
+  id: string;
+  name: string;
+  metric: string;
+  threshold: number;
+  window_runs: number;
+  agent: string | null;
+  enabled: number;
+}
+
+function rowToAlertRule(row: AlertRuleRow): AlertRule {
+  return {
+    id: row.id,
+    name: row.name,
+    metric: row.metric as AlertMetric,
+    threshold: row.threshold,
+    windowRuns: row.window_runs,
+    agent: row.agent,
+    enabled: row.enabled === 1,
+  };
+}
+
+interface AlertEventRow {
+  id: string;
+  rule_id: string;
+  fired_at_ms: number;
+  metric: string;
+  observed: number;
+  threshold: number;
+  agent: string | null;
+  delivered: number;
+}
+
+function rowToAlertEvent(row: AlertEventRow): AlertEvent {
+  return {
+    id: row.id,
+    ruleId: row.rule_id,
+    firedAtMs: row.fired_at_ms,
+    metric: row.metric as AlertMetric,
+    observed: row.observed,
+    threshold: row.threshold,
+    agent: row.agent,
+    delivered: row.delivered === 1,
+  };
 }
 
 interface RunRow {
