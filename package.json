@@ -14,6 +14,10 @@
     "typecheck": "pnpm -r --filter \"./packages/*\" typecheck",
     "lint": "eslint ."
   },
+  "pnpm": {
+    "//": "better-sqlite3 ships a native addon; allow its build script to run so the binding compiles.",
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.2",
