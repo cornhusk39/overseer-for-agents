@@ -1,0 +1,10 @@
+{
+  "//": "Imports of @overseer/* resolve to built dist via the pnpm symlink, so the libraries are built before this example is typechecked. Tests resolve them from source through the Vitest aliases in vitest.config.ts.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

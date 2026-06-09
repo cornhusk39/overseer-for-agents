@@ -1,0 +1,21 @@
+{
+  "name": "@overseer/example-booking",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A small home-service booking agent instrumented with the Overseer SDK. The quickstart that proves the SDK to ingest to SQLite path.",
+  "scripts": {
+    "start": "tsx src/run.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@overseer/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@overseer/ingest": "workspace:*",
+    "@overseer/schema": "workspace:*",
+    "@types/node": "^25.9.2",
+    "tsx": "^4.20.3"
+  }
+}
