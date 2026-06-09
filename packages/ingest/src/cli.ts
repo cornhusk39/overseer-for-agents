@@ -6,8 +6,8 @@
 //   import-cassette <path>    import an AgentProbe cassette file or directory
 //   alert-test                evaluate rules and deliver any firings; if none
 //                             fire, send a synthetic alert to prove the webhook
-//
-// More subcommands (traffic generation, demo seeding) are added in M7.
+//   rules init|list|set       manage alert rules in the configured database
+//   seed-demo                 fabricate demo traffic and export the snapshot
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -16,7 +16,8 @@ import { importCassetteFile, importCassetteDir } from "./importer.js";
 import { dispatchAlerts } from "./alert-runner.js";
 import { formatWebhookPayload, deliverWebhook, type WebhookFormat } from "./webhook.js";
 import { type FiredAlert } from "./alerts.js";
-import { seedDemo, exportSnapshot } from "./demo.js";
+import { seedDemo, exportSnapshot, DEFAULT_ALERT_RULES } from "./demo.js";
+import { ALERT_METRICS, formatMetricValue, type AlertMetric } from "./alerts.js";
 
 function dbPath(): string {
   return process.env.OVERSEER_DB_PATH?.trim() || "./data/overseer.db";
@@ -89,6 +90,109 @@ async function alertTest(): Promise<void> {
   }
 }
 
+// Manage alert rules in the configured database. `init` installs the default
+// rule set, `list` shows what is configured, and `set` tweaks one rule by id.
+// This is how a real (non-demo) install turns alerting on: init the defaults,
+// then adjust thresholds to taste.
+async function rulesCommand(args: string[]): Promise<void> {
+  const [sub, ...rest] = args;
+  const store = new Store(dbPath());
+  try {
+    if (sub === "init") {
+      for (const rule of DEFAULT_ALERT_RULES) store.upsertAlertRule(rule);
+      console.log(`installed ${DEFAULT_ALERT_RULES.length} default rules into ${dbPath()}`);
+      for (const rule of DEFAULT_ALERT_RULES) {
+        console.log(`  ${rule.id}: ${rule.metric} > ${formatMetricValue(rule.metric, rule.threshold)} over ${rule.windowRuns} runs`);
+      }
+      return;
+    }
+
+    if (sub === "list") {
+      const rules = store.listAlertRules();
+      if (rules.length === 0) {
+        console.log("no alert rules configured. Run: overseer rules init");
+        return;
+      }
+      for (const rule of rules) {
+        const scope = rule.agent ?? "all agents";
+        const state = rule.enabled ? "enabled" : "disabled";
+        console.log(
+          `${rule.id}  [${state}]  ${rule.metric} > ${formatMetricValue(rule.metric, rule.threshold)} over ${rule.windowRuns} runs  (${scope})`,
+        );
+      }
+      return;
+    }
+
+    if (sub === "set") {
+      const [id, ...pairs] = rest;
+      if (!id || pairs.length === 0) {
+        fail(
+          "usage: overseer rules set <id> key=value...\n" +
+            "  keys: threshold=<number> window=<runs> agent=<name|all> enabled=<true|false>\n" +
+            `        metric=<${ALERT_METRICS.join("|")}> name=<text>`,
+        );
+      }
+      const existing = store.listAlertRules().find((r) => r.id === id);
+      // Editing a missing rule creates it, so an operator can define a custom
+      // rule without a separate "add" verb. Sensible blanks fill the rest.
+      const rule = existing ?? {
+        id,
+        name: id,
+        metric: "cost_per_run" as AlertMetric,
+        threshold: 0.05,
+        windowRuns: 10,
+        agent: null,
+        enabled: true,
+      };
+      for (const pair of pairs) {
+        const eq = pair.indexOf("=");
+        if (eq < 1) fail(`expected key=value, got "${pair}"`);
+        const key = pair.slice(0, eq);
+        const value = pair.slice(eq + 1);
+        switch (key) {
+          case "threshold": {
+            const n = Number(value);
+            if (!Number.isFinite(n) || n < 0) fail(`threshold must be a non-negative number, got "${value}"`);
+            rule.threshold = n;
+            break;
+          }
+          case "window": {
+            const n = Number(value);
+            if (!Number.isInteger(n) || n < 1) fail(`window must be a positive integer, got "${value}"`);
+            rule.windowRuns = n;
+            break;
+          }
+          case "agent":
+            rule.agent = value === "all" || value === "" ? null : value;
+            break;
+          case "enabled":
+            if (value !== "true" && value !== "false") fail(`enabled must be true or false, got "${value}"`);
+            rule.enabled = value === "true";
+            break;
+          case "metric":
+            if (!ALERT_METRICS.includes(value as AlertMetric)) {
+              fail(`metric must be one of ${ALERT_METRICS.join(", ")}, got "${value}"`);
+            }
+            rule.metric = value as AlertMetric;
+            break;
+          case "name":
+            rule.name = value;
+            break;
+          default:
+            fail(`unknown key "${key}" (use threshold, window, agent, enabled, metric, name)`);
+        }
+      }
+      store.upsertAlertRule(rule);
+      console.log(`${existing ? "updated" : "created"} rule ${rule.id}: ${rule.metric} > ${formatMetricValue(rule.metric, rule.threshold)} over ${rule.windowRuns} runs (${rule.agent ?? "all agents"}, ${rule.enabled ? "enabled" : "disabled"})`);
+      return;
+    }
+
+    fail("usage: overseer rules <init | list | set <id> key=value...>");
+  } finally {
+    store.close();
+  }
+}
+
 // Seed a fresh demo database with synthetic traffic and default alert rules,
 // then export the JSON snapshot the read-only dashboard serves.
 async function seedDemoCommand(): Promise<void> {
@@ -125,11 +229,14 @@ async function main(): Promise<void> {
     case "alert-test":
       await alertTest();
       break;
+    case "rules":
+      await rulesCommand(args);
+      break;
     case "seed-demo":
       await seedDemoCommand();
       break;
     default:
-      console.log("usage: overseer <serve | import-cassette <path> | alert-test | seed-demo>");
+      console.log("usage: overseer <serve | import-cassette <path> | alert-test | rules <init|list|set> | seed-demo>");
       process.exitCode = command ? 1 : 0;
   }
 }
