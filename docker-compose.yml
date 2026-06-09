@@ -1,0 +1,47 @@
+# One command self-host: `docker compose up`. Brings up the ingest service (OTLP
+# receiver plus read API) and the dashboard, with a named volume holding the
+# SQLite database so data survives restarts.
+#
+# Copy .env.example to .env and set OVERSEER_INGEST_TOKEN before starting. Both
+# services are built from the same image (see Dockerfile) and differ only in the
+# command they run.
+
+services:
+  ingest:
+    build:
+      context: .
+      target: runtime
+    command: ["node", "packages/ingest/dist/server-main.js"]
+    env_file:
+      # Optional so a fresh checkout validates; copy .env.example to .env and set
+      # OVERSEER_INGEST_TOKEN before actually starting the stack.
+      - path: .env
+        required: false
+    environment:
+      # Bind to all interfaces inside the container so the web service can reach
+      # it across the compose network.
+      OVERSEER_INGEST_HOST: 0.0.0.0
+      OVERSEER_INGEST_PORT: "4318"
+      OVERSEER_DB_PATH: /data/overseer.db
+    ports:
+      - "4318:4318"
+    volumes:
+      - overseer-data:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: runtime
+    command: ["pnpm", "--filter", "@overseer/web", "start"]
+    environment:
+      # The dashboard reads the ingest REST API over the compose network.
+      OVERSEER_API_BASE_URL: http://ingest:4318
+    ports:
+      - "4319:4319"
+    depends_on:
+      - ingest
+    restart: unless-stopped
+
+volumes:
+  overseer-data:
