@@ -27,6 +27,13 @@ describe("formatWebhookPayload", () => {
     expect(observed.value).toBe("$0.0820");
   });
 
+  it("links back to the dashboard when a base URL is configured", () => {
+    const payload = formatWebhookPayload(alert, "discord", "2026-06-09T00:00:00.000Z", "https://overseer.example.com/") as {
+      embeds: { url?: string }[];
+    };
+    expect(payload.embeds[0]!.url).toBe("https://overseer.example.com/runs?agent=booking");
+  });
+
   it("builds a Slack attachment", () => {
     const payload = formatWebhookPayload(alert, "slack", "2026-06-09T00:00:00.000Z") as {
       text: string;

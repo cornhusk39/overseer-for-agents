@@ -14,10 +14,20 @@ const ALERT_COLOR_INT = 0xf8_71_71;
 
 // Build the JSON body for a webhook post. Discord and Slack both accept simple
 // JSON; the shapes differ, so we format per target. Unknown fields are ignored
-// by both, but we keep the payloads minimal and conventional.
-export function formatWebhookPayload(alert: FiredAlert, format: WebhookFormat, isoTime: string): unknown {
+// by both, but we keep the payloads minimal and conventional. dashboardUrl,
+// when configured, links the alert back to the runs view so whoever gets paged
+// can jump straight to the data instead of hunting for the dashboard.
+export function formatWebhookPayload(
+  alert: FiredAlert,
+  format: WebhookFormat,
+  isoTime: string,
+  dashboardUrl?: string,
+): unknown {
   const summary = describeAlert(alert);
   const scope = alert.rule.agent ?? "all agents";
+  const runsLink = dashboardUrl
+    ? `${dashboardUrl.replace(/\/$/, "")}/runs${alert.rule.agent ? `?agent=${encodeURIComponent(alert.rule.agent)}` : ""}`
+    : undefined;
 
   if (format === "slack") {
     return {
@@ -25,7 +35,7 @@ export function formatWebhookPayload(alert: FiredAlert, format: WebhookFormat, i
       attachments: [
         {
           color: ALERT_COLOR_HEX,
-          text: summary,
+          text: runsLink ? `${summary}\n<${runsLink}|Open in Overseer>` : summary,
           fields: [
             { title: "Metric", value: alert.rule.metric, short: true },
             { title: "Scope", value: scope, short: true },
@@ -43,6 +53,7 @@ export function formatWebhookPayload(alert: FiredAlert, format: WebhookFormat, i
       {
         title: `Alert: ${alert.rule.name}`,
         description: summary,
+        ...(runsLink ? { url: runsLink } : {}),
         color: ALERT_COLOR_INT,
         timestamp: isoTime,
         fields: [

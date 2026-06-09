@@ -25,9 +25,10 @@ startIngest(config)
     const webhookUrl = process.env.OVERSEER_ALERT_WEBHOOK_URL?.trim();
     if (webhookUrl) {
       const format = process.env.OVERSEER_ALERT_FORMAT === "slack" ? "slack" : "discord";
+      const dashboardUrl = process.env.OVERSEER_DASHBOARD_URL?.trim() || undefined;
       console.log(`  alerts:       evaluating every ${ALERT_INTERVAL_MS / 1000}s, delivering to a ${format} webhook`);
       setInterval(() => {
-        dispatchAlerts(running.store, { webhookUrl, format })
+        dispatchAlerts(running.store, { webhookUrl, format, dashboardUrl })
           .then((results) => {
             for (const r of results) {
               console.log(`alert "${r.alert.rule.name}" ${r.delivery.ok ? "delivered" : "delivery failed"}`);

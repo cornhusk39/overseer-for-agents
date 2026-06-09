@@ -69,6 +69,9 @@ export function evaluateAlerts(store: Store, options: EvaluateOptions = {}): Fir
 export interface DispatchOptions extends EvaluateOptions {
   webhookUrl: string;
   format?: WebhookFormat;
+  // Public base URL of the dashboard; when set, alerts carry a link back to
+  // the relevant runs view.
+  dashboardUrl?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -85,7 +88,12 @@ export async function dispatchAlerts(store: Store, options: DispatchOptions): Pr
   const fired = evaluateAlerts(store, options);
   const results: DispatchResult[] = [];
   for (const alert of fired) {
-    const payload = formatWebhookPayload(alert, format, new Date(alert.firedAtMs).toISOString());
+    const payload = formatWebhookPayload(
+      alert,
+      format,
+      new Date(alert.firedAtMs).toISOString(),
+      options.dashboardUrl,
+    );
     const delivery = await deliverWebhook(options.webhookUrl, payload, options.fetchImpl);
     if (delivery.ok) store.markAlertDelivered(alert.eventId);
     results.push({ alert, delivery });
