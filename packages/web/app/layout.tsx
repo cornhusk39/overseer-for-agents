@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Nav } from "../components/Nav";
+import { isReadOnly } from "../lib/mode";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <div className="brand">
                 <span className="brand-dot" />
                 Overseer
+                {isReadOnly() && <span className="tag" style={{ marginLeft: 4 }}>demo</span>}
               </div>
               <Nav />
             </div>
