@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Pre-commit secret scan. Runs gitleaks against the staged changes so a secret
+# cannot enter history in the first place. This is the cheap, fast gate;
+# publish-gate.sh is the thorough full-history one. Enable it with:
+#   git config core.hooksPath .githooks
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed. Install it before committing:" >&2
+  echo "  brew install gitleaks" >&2
+  exit 1
+fi
+
+# --staged scans only what is about to be committed, which keeps the hook fast.
+# --redact keeps any found secret out of the hook's own output.
+gitleaks git --staged --redact --config .gitleaks.toml

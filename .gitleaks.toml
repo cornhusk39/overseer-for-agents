@@ -1,0 +1,25 @@
+# gitleaks configuration for both the pre-commit hook and publish-gate.sh.
+# Extends the bundled default ruleset rather than replacing it, so we keep all
+# of gitleaks' built-in detectors and only add project-specific allowances.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Project allowances that are not real secrets"
+
+# These paths hold documentation and synthetic data only. .env.example carries
+# empty placeholder variables; fixtures and the demo snapshot are fabricated.
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)fixtures/''',
+  '''(^|/)__fixtures__/''',
+]
+
+# Common placeholder tokens used in docs and examples. These are obviously not
+# live credentials, so flagging them would only train people to ignore the gate.
+regexes = [
+  '''OVERSEER_[A-Z_]*=$''',
+  '''your-token-here''',
+  '''replace-me''',
+]

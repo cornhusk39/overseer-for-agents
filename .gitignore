@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+*.tsbuildinfo
+.next/
+out/
+next-env.d.ts
+
+# env and secrets, never commit these
+.env
+.env.*
+!.env.example
+
+# local databases and snapshots produced at runtime
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+
+# the seeded demo snapshot is generated, not committed by hand
+packages/web/public/demo.db
+
+# test and coverage
+coverage/
+.vitest/
+
+# local tooling and editors
+.DS_Store
+*.log
+.idea/
+.vscode/
