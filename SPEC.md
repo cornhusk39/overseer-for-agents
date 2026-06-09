@@ -85,9 +85,9 @@ Out (explicit, to prevent sprawl):
   anomaly detection, alert dedup beyond a simple cooldown, eval scoring (that
   is AgentProbe's job), Prometheus/Grafana integration.
 
-## Milestones (each is a build gate)
+## Milestones
 - M0. Bootstrap: repo initialized, private GitHub remote created, hygiene in
-  place (CLAUDE.md, .gitignore, .env.example, gitleaks pre-commit hook,
+  place (working rules, .gitignore, .env.example, gitleaks pre-commit hook,
   publish-gate.sh), pnpm workspace scaffolded, Vitest green on a trivial test.
 - M1. `schema` package with the trace contract and AgentProbe compatibility
   tests.
@@ -116,7 +116,7 @@ Out (explicit, to prevent sprawl):
   ingested data.
 - Demo deployment: read-only, no ingest route mounted, no keys.
 
-## Definition of done (the /goal stop condition)
+## Definition of done
 M0 through M7 complete; Vitest and lint green; an example agent run flows
 SDK -> ingest -> SQLite -> dashboard end to end; a fixture regression in the
 synthetic traffic fires a Discord alert via test-fire; the AgentProbe cassette

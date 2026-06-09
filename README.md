@@ -1,116 +1,103 @@
 # Overseer for Agents
 
-Self-hosted observability for production LLM agents. Send traces in over standard
-OpenTelemetry, get agent-native metrics (cost, tokens, tool-call success,
-latency, error and tool-failure rates), live run waterfalls, and threshold
-alerts to Discord or Slack. One `docker compose up` runs the whole plane, and no
-prompts or customer data ever leave your infrastructure.
+[![CI](https://github.com/cornhusk39/overseer-for-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/cornhusk39/overseer-for-agents/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-teal.svg)](LICENSE)
+
+Self-hosted observability for production LLM agents. Send traces in over
+standard OpenTelemetry, get agent-native metrics out: cost, tokens, tool-call
+success, latency percentiles, error and tool-failure rates, live run
+waterfalls, and threshold alerts to Discord or Slack. One `docker compose up`
+runs the whole plane, and no prompts or customer data ever leave your
+infrastructure.
 
 ```
   your agent ──OTLP/HTTP JSON──▶  ingest  ──▶  SQLite  ──▶  dashboard
-   (SDK or raw OTLP)              redact          rollups       waterfalls,
-                                  + caps          + alerts      trends, alerts
+   (any OTel SDK, or the         redact,        per-run       waterfalls,
+    bundled TS client)           cap, map       rollups       trends, alerts
 ```
+
+![Trends dashboard showing a cost and failure regression](docs/screenshots/trends.png)
 
 ## The problem
 
-Teams that ship LLM agents can usually answer "did it pass eval," but not "what
-is it doing in production right now." Costs drift, a tool call quietly starts
-failing, latency creeps, and nobody notices until a customer does. Generic APM
-tools do not understand agent semantics (steps, tool calls, tokens, model cost),
-and hosted LLM observability platforms are a non-starter for teams that cannot
-ship prompts and customer data to a third party.
+Teams that ship LLM agents can usually answer "did it pass eval," but not
+"what is it doing in production right now." Costs drift, a tool call quietly
+starts failing, latency creeps, and nobody notices until a customer does.
+Generic APM doesn't understand agent semantics (steps, tool calls, tokens,
+model cost), and hosted LLM observability platforms are a non-starter for
+teams that can't ship prompts and customer data to a third party.
 
-Overseer is the missing middle: an observability plane that speaks agent, runs
-on your own box, and stands up in one command.
+Overseer is the missing middle: an observability plane that speaks agent,
+runs on your own box, and stands up in one command.
 
 ## Why not a hosted platform (or Langfuse)
 
 1. **Agent-native, not prompt-native.** Tool-call success and multi-step run
-   health are first-class, not bolted on. The run waterfall, the per-run rollup,
-   and the alert metrics are all built around how agents actually fail.
-2. **Standards-first.** Ingestion is OpenTelemetry OTLP/HTTP with the GenAI
-   semantic conventions (`gen_ai.*`) mapped to agent-native fields. There is no
-   proprietary wire protocol to lock you in. Attributes Overseer does not
-   recognize are preserved raw rather than dropped.
-3. **Self-host-first.** A single compose file, SQLite, no external services. The
-   whole thing is one image run twice.
-4. **Interop.** Overseer natively reads the
-   [AgentProbe](https://github.com/cornhusk39/agentprobe) trace schema, so eval
-   (AgentProbe) and production observability (Overseer) form one toolchain.
-   Cassettes recorded on the eval side import as runs on the observability side.
-
-## Origin story
-
-This started as a personal homelab "overseer," a read-only watcher that kept an
-eye on a handful of self-hosted services and posted to Discord when something
-drifted. Pointing it at a couple of LLM agents made the gap obvious: the generic
-version had no idea what a tool call or a token was. Overseer for Agents is that
-idea generalized and rebuilt around agent semantics, OTLP, and a real trace
-model, while keeping the two things the homelab version got right: it runs on
-your own hardware, and it tells you in Discord when something breaks.
-
-## Architecture
-
-A TypeScript pnpm workspace, four packages plus an example:
-
-| Package            | Role                                                                 |
-| ------------------ | -------------------------------------------------------------------- |
-| `packages/schema`  | The trace contract: Zod schemas and types, shared everywhere. Includes the OTLP request shape, the GenAI semconv keys, the domain model (agents, runs, spans, rollups), and the AgentProbe-compatible cassette schema. |
-| `packages/ingest`  | The OTLP/HTTP receiver, the SQLite store, the GenAI mapping and per-run rollups, the alert engine and webhook delivery, the cassette importer, the synthetic generator, and the `overseer` CLI. |
-| `packages/sdk`     | A thin TypeScript client over OTLP: `startRun`, `span`, `llmCall`, `toolCall`, `end`. No bespoke protocol underneath. |
-| `packages/web`     | The Next.js dashboard: agents overview, live runs, run detail with trace waterfall, and trends. |
-| `examples/booking-agent` | A small instrumented agent and the end-to-end test that proves the SDK to ingest to SQLite path. |
-
-Data flow: an agent emits OTLP spans (via the SDK or any OTLP client). The ingest
-receiver authenticates the request, enforces size and count caps, times it out,
-redacts every retained string, maps `gen_ai.*` attributes to agent-native
-fields, and writes spans to SQLite in one transaction that also refreshes the
-run and its rollup. The dashboard reads a small REST API the ingest service
-exposes. Alerts are evaluated on a timer and delivered to a webhook.
-
-Storage is SQLite via better-sqlite3. Postgres is the documented scale path for a
-later version, not built in v1; the schema is plain SQL so that port stays
-straightforward.
+   health are first-class. The waterfall, the per-run rollup, and the alert
+   metrics are built around how agents actually fail.
+2. **Standards-first.** Ingestion is OTLP/HTTP with the GenAI semantic
+   conventions (`gen_ai.*`) mapped to agent-native fields. No proprietary
+   protocol; attributes Overseer doesn't recognize are preserved, not dropped.
+3. **Self-host-first.** A single compose file, SQLite, no external services.
+4. **Eval interop.** Overseer natively reads the
+   [AgentProbe](https://github.com/cornhusk39/agentprobe) trace schema, so
+   eval and production observability form one toolchain: cassettes recorded
+   on the eval side import as runs on the observability side.
 
 ## Quickstart (self-host)
 
 Prerequisites: Docker.
 
 ```sh
-cp .env.example .env
-# Set a long random ingest token, for example:
-#   OVERSEER_INGEST_TOKEN=$(openssl rand -hex 32)
+git clone https://github.com/cornhusk39/overseer-for-agents.git
+cd overseer-for-agents
+cp .env.example .env            # then set OVERSEER_INGEST_TOKEN, e.g. $(openssl rand -hex 32)
 docker compose up --build
 ```
 
 - Dashboard: http://localhost:4319
 - OTLP ingest: `POST http://localhost:4318/v1/traces` (bearer auth)
-- Read API: `GET http://localhost:4318/api/agents` (and `/api/runs`, `/api/runs/:id`, `/api/trends`)
+- Read API: `GET http://localhost:4318/api/agents` (also `/api/runs`,
+  `/api/runs/:id`, `/api/trends`)
 
-The SQLite database lives in a named volume, so runs survive restarts.
+The SQLite database lives in a named volume, so runs survive restarts. For
+retention, run `overseer prune --keep-days 30` from cron.
 
 ### Local development
 
 Prerequisites: Node 20+ and pnpm.
 
 ```sh
-pnpm install
-pnpm build
-pnpm test      # Vitest across every package
-pnpm lint
-```
-
-Run the ingest service and dashboard locally:
-
-```sh
+pnpm install && pnpm build && pnpm test && pnpm lint
 OVERSEER_INGEST_TOKEN=dev-token pnpm --filter @overseer/ingest serve   # :4318
 pnpm --filter @overseer/web dev                                        # :4319
 ```
 
 ## Sending traces
 
-With the SDK:
+**From any OpenTelemetry SDK** (any language): export OTLP/HTTP JSON to
+`/v1/traces` with a bearer token and the GenAI semantic conventions. Overseer
+maps `gen_ai.response.model`, `gen_ai.usage.*`, and `gen_ai.tool.name` to
+first-class fields and derives dollar cost from a model price table:
+
+```sh
+curl -X POST http://localhost:4318/v1/traces \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer $OVERSEER_INGEST_TOKEN" \
+  -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"my-agent"}}]},
+       "scopeSpans":[{"spans":[{"traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"00f067aa0ba902b7",
+       "name":"chat","startTimeUnixNano":"1717939200000000000","endTimeUnixNano":"1717939200900000000",
+       "status":{"code":1},"attributes":[
+         {"key":"gen_ai.response.model","value":{"stringValue":"claude-sonnet-4-6"}},
+         {"key":"gen_ai.usage.input_tokens","value":{"intValue":"160"}},
+         {"key":"gen_ai.usage.output_tokens","value":{"intValue":"90"}}]}]}]}]}'
+```
+
+**From TypeScript**, the bundled SDK wraps the same wire format in five
+calls (`startRun`, `span`, `llmCall`, `toolCall`, `end`) and never throws
+into your agent: a failed export is reported, not raised. The packages are
+not published to npm yet; consume the SDK by vendoring `packages/sdk` or via
+a git dependency, or just speak raw OTLP as above.
 
 ```ts
 import { createClient } from "@overseer/sdk";
@@ -122,17 +109,12 @@ const overseer = createClient({
 });
 
 const run = overseer.startRun({ name: "handle booking" });
-await run.llmCall({ model: "claude-opus-4-8", inputTokens: 160, outputTokens: 90 }, async () => {
-  return callYourModel();
-});
-await run.toolCall({ name: "lookup_property" }, async () => {
-  return lookupProperty();
-});
+await run.llmCall({ model: "claude-sonnet-4-6", inputTokens: 160, outputTokens: 90 }, callModel);
+await run.toolCall({ name: "lookup_property" }, lookupProperty);
 await run.end();
 ```
 
-Or send raw OTLP/HTTP JSON to `/v1/traces` from any OpenTelemetry SDK. Overseer
-maps the GenAI conventions automatically. To see it end to end, run the example:
+To see the whole path working, run the example agent against a local ingest:
 
 ```sh
 OVERSEER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces \
@@ -140,73 +122,102 @@ OVERSEER_SDK_TOKEN=dev-token \
 pnpm --filter @overseer/example-booking start
 ```
 
+![Run detail with trace waterfall and tool outcomes](docs/screenshots/run-detail.png)
+
 ## Alerts
 
-Rules are simple and explicit: a metric, a threshold, and a window of recent runs
-the condition must hold over, plus a per-rule cooldown. The four metrics are cost
-per run, error rate, tool-failure rate, and p95 latency. Firings are delivered to
-a Discord (or Slack-compatible) webhook whose URL comes only from configuration,
-never from ingested telemetry.
-
-Verify your webhook wiring, or fire any currently-tripping rule, with:
+Rules are deliberately simple: a metric, a threshold, and a window of recent
+completed runs the condition must hold over, plus a per-rule cooldown. The
+four metrics are cost per run, error rate, tool-failure rate, and p95
+latency. Delivery is a Discord (or Slack-compatible) webhook whose URL comes
+only from configuration, never from ingested telemetry; set
+`OVERSEER_DASHBOARD_URL` and every alert links straight back to the relevant
+runs view.
 
 ```sh
-OVERSEER_ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/... \
-pnpm --filter @overseer/ingest exec overseer alert-test
+overseer rules init                                  # install the default rule set
+overseer rules set cost-per-run threshold=0.05       # tune a threshold
+overseer rules list
+OVERSEER_ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/... overseer alert-test
 ```
+
+(`overseer` is the ingest package's CLI: `node packages/ingest/dist/cli.js`
+from the repo root, or wire it into your own scripts.)
 
 ## AgentProbe interop
 
-Import cassettes recorded by AgentProbe as Overseer runs:
-
 ```sh
-pnpm --filter @overseer/ingest exec overseer import-cassette ./path/to/cassettes
+overseer import-cassette ./path/to/cassettes
 ```
 
-The importer preserves the run-level cost and token totals and surfaces tool
-calls with their outcomes. Re-importing the same cassette is idempotent.
+Imports every cassette as a run, preserving the recorded cost and token
+totals and surfacing tool calls with their outcomes. Re-importing a
+re-recorded cassette rebuilds the run rather than merging stale steps, so a
+fixed regression actually turns green.
 
-## Demo (read-only)
+## Demo mode
 
-The `overseer seed-demo` command fabricates a week of synthetic booking-agent
-traffic (including a deliberate cost-and-failure regression near the end) and
-exports a snapshot the dashboard can serve with `OVERSEER_READ_ONLY=true`. In
-that mode there is no ingest endpoint and no keys, just the bundled synthetic
-data, which is exactly what makes it safe to deploy publicly.
+`overseer seed-demo` fabricates a week of synthetic booking-agent traffic
+(with a deliberate cost-and-failure regression near the end) and exports a
+snapshot the dashboard serves with `OVERSEER_READ_ONLY=true`. In that mode
+there is no ingest endpoint and no keys, just bundled synthetic data, which
+is what makes it safe to deploy publicly.
+
+## Architecture
+
+A TypeScript pnpm workspace:
+
+| Package | Role |
+| --- | --- |
+| `packages/schema` | The trace contract: shared Zod schemas and types. The OTLP request shape, GenAI semconv keys, the domain model, and the AgentProbe-compatible cassette schema. |
+| `packages/ingest` | The OTLP receiver, SQLite store, semconv mapping and per-run rollups, trends, the alert engine and webhook delivery, the cassette importer, the traffic generator, and the `overseer` CLI. |
+| `packages/sdk` | The thin TypeScript client over OTLP. |
+| `packages/web` | The Next.js dashboard: agents overview, runs, run detail with waterfall, trends. |
+| `examples/booking-agent` | An instrumented example agent and the end-to-end test that proves SDK -> ingest -> SQLite. |
+
+Data flow: the receiver authenticates each request, enforces body-size,
+span-count, attribute-count, value-length, and nesting-depth caps, times out
+slow clients, redacts every retained string (emails, phone numbers,
+key-shaped tokens; an allowlist mode is available for default-deny), maps
+GenAI attributes to agent-native fields, and writes spans in one transaction
+that also refreshes the run and its rollup. The dashboard reads a small REST
+API from the same service. Alerts are evaluated on a timer off the ingest hot
+path.
 
 ## Design tradeoffs
 
-- **SQLite over Postgres.** Single-node self-host is the v1 target, and SQLite
-  makes "one command to run it" real. Postgres is the scale path, noted here, not
-  built yet. The schema is plain SQL to keep that port honest.
-- **Threshold alerts over ML.** v1 rules are a metric, a threshold, and a
-  sustained window. They are explainable and tunable, and they do not need a
-  training corpus. Anomaly detection is deliberately out of scope.
-- **OTLP-first over a custom protocol.** Speaking OTLP means any OpenTelemetry
-  SDK can feed Overseer and the SDK stays a thin convenience layer. The cost is
-  mapping the verbose OTLP shape, which the schema package isolates.
-- **Redaction at ingest, fail-safe by default.** All ingested telemetry is
-  treated as untrusted. Scrubbers run before any write, and an attribute
-  allowlist mode is available for default-deny. Raw unscrubbed payloads are never
-  persisted.
+- **SQLite over Postgres.** Single-node self-host is the v1 target, and
+  SQLite makes "one command to run it" real. The schema is plain SQL so the
+  Postgres port stays honest. Retention is `overseer prune`.
+- **Threshold alerts over ML.** A metric, a threshold, and a sustained
+  window are explainable and tunable, and need no training corpus.
+- **OTLP-first over a custom protocol.** Any OpenTelemetry SDK can feed
+  Overseer; the bundled SDK is a convenience, not a requirement. The cost is
+  mapping OTLP's verbose attribute encoding, which the schema package
+  isolates in one place.
+- **Redaction at ingest, fail-safe by default.** Raw unscrubbed payloads are
+  never persisted. The scrubbers are deliberately conservative; over-masking
+  beats leaking.
 
 ## Security
 
-Secrets live in environment variables only. `.env` is gitignored, `.env.example`
-documents every variable, a gitleaks pre-commit hook runs from the first commit,
-and `./publish-gate.sh` is a hard full-history secret scan (gitleaks plus
-trufflehog) with hygiene checks. The ingest endpoint requires a bearer token and
-enforces body-size, span-count, and attribute caps plus a read timeout. See
-[SECURITY.md](SECURITY.md) for the full threat model.
+Bearer auth with constant-time comparison on ingest; body, span, attribute,
+value-length, and nesting-depth caps; read timeouts; no redirect following on
+webhook delivery; ingest-time redaction before any write; secrets in env
+only, with a gitleaks pre-commit hook and a full-history publish gate
+(gitleaks + trufflehog) in `./publish-gate.sh`. The threat model and
+reporting process are in [SECURITY.md](SECURITY.md).
 
-## Scope
+## Scope and roadmap
 
-The v1 specification, including the explicit out-of-scope list, is in
-[SPEC.md](SPEC.md). In short: OTLP traces in, SQLite storage, agent-native
-metrics, a dashboard, threshold alerts, the AgentProbe importer, and a synthetic
-demo. Out: metrics and logs OTLP signals, multi-tenancy, RBAC, Postgres, ML
-anomaly detection, and eval scoring (that is AgentProbe's job).
+The v1 spec, including the explicit out-of-scope list, is in
+[SPEC.md](SPEC.md). Deliberately not in v1: OTLP metrics/logs signals,
+multi-tenancy and RBAC, Postgres, ML anomaly detection, and eval scoring
+(that is AgentProbe's job). Natural next steps: Postgres for multi-node,
+a generic webhook target, CSV export, and a Python helper mirroring the TS
+SDK.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Contributions welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md).
