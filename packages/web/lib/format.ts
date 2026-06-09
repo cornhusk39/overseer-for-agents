@@ -25,3 +25,28 @@ export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`;
   return `${(ms / 1000).toFixed(2)} s`;
 }
+
+// Format a 0..1 fraction as a percentage. Whole numbers drop the decimal so a
+// clean 0% or 100% does not read as "0.0%".
+export function formatPercent(fraction: number): string {
+  if (!Number.isFinite(fraction)) return "0%";
+  const pct = fraction * 100;
+  return Number.isInteger(pct) ? `${pct}%` : `${pct.toFixed(1)}%`;
+}
+
+// A compact relative time like "3m ago" or "2h ago", with an absolute fallback
+// once something is more than a week old. nowMs is injectable for testing.
+export function formatRelativeTime(ms: number, nowMs: number = Date.now()): string {
+  const diff = nowMs - ms;
+  if (!Number.isFinite(diff)) return "";
+  if (diff < 0) return "just now";
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(ms).toISOString().slice(0, 10);
+}

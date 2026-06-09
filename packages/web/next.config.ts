@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
-// Kept deliberately minimal. The dashboard reads from the ingest REST API at
-// runtime, so there is no special build-time data wiring to configure here yet.
+// The dashboard reads from the ingest REST API at runtime. We transpile the
+// shared schema package so its workspace source resolves cleanly in the bundle.
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  transpilePackages: ["@overseer/schema"],
 };
 
 export default nextConfig;

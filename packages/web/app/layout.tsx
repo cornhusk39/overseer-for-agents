@@ -1,18 +1,32 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Nav } from "../components/Nav";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Overseer for Agents",
   description: "Self-hosted observability for production LLM agents.",
 };
 
-// Root layout. The dashboard chrome (navigation, time-range controls) is built
-// out in M5; this is the minimal shell that makes the app a valid Next.js App
-// Router project from the bootstrap onward.
+// Root layout: the top bar with navigation wraps every page, and pages render
+// their own container.
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <div className="app">
+          <header className="topbar">
+            <div className="topbar-inner">
+              <div className="brand">
+                <span className="brand-dot" />
+                Overseer
+              </div>
+              <Nav />
+            </div>
+          </header>
+          <main>{children}</main>
+        </div>
+      </body>
     </html>
   );
 }
