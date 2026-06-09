@@ -16,6 +16,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@overseer/schema": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^25.9.2"
   }
