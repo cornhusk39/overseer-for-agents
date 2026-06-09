@@ -10,11 +10,13 @@
 // More subcommands (traffic generation, demo seeding) are added in M7.
 
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import { Store } from "./store.js";
 import { importCassetteFile, importCassetteDir } from "./importer.js";
 import { dispatchAlerts } from "./alert-runner.js";
 import { formatWebhookPayload, deliverWebhook, type WebhookFormat } from "./webhook.js";
 import { type FiredAlert } from "./alerts.js";
+import { seedDemo, exportSnapshot } from "./demo.js";
 
 function dbPath(): string {
   return process.env.OVERSEER_DB_PATH?.trim() || "./data/overseer.db";
@@ -87,6 +89,29 @@ async function alertTest(): Promise<void> {
   }
 }
 
+// Seed a fresh demo database with synthetic traffic and default alert rules,
+// then export the JSON snapshot the read-only dashboard serves.
+async function seedDemoCommand(): Promise<void> {
+  const dbTarget = process.env.OVERSEER_DB_PATH?.trim() || "./data/demo.db";
+  const snapshotPath =
+    process.env.OVERSEER_DEMO_SNAPSHOT?.trim() || "packages/web/lib/demo-snapshot.json";
+
+  // Start clean so re-seeding is reproducible rather than additive.
+  await fs.rm(dbTarget, { force: true }).catch(() => {});
+  const store = new Store(dbTarget);
+  try {
+    const now = Date.now();
+    const summary = seedDemo(store, { now });
+    const snapshot = exportSnapshot(store, now);
+    await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
+    await fs.writeFile(snapshotPath, JSON.stringify(snapshot, null, 2) + "\n", "utf8");
+    console.log(`seeded ${summary.runs} runs for ${summary.agents.join(", ")} into ${dbTarget}`);
+    console.log(`wrote read-only snapshot to ${snapshotPath} (${snapshot.runs.length} runs)`);
+  } finally {
+    store.close();
+  }
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   switch (command) {
@@ -100,8 +125,11 @@ async function main(): Promise<void> {
     case "alert-test":
       await alertTest();
       break;
+    case "seed-demo":
+      await seedDemoCommand();
+      break;
     default:
-      console.log("usage: overseer <serve | import-cassette <path> | alert-test>");
+      console.log("usage: overseer <serve | import-cassette <path> | alert-test | seed-demo>");
       process.exitCode = command ? 1 : 0;
   }
 }

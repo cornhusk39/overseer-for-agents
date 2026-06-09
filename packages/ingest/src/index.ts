@@ -19,6 +19,8 @@ export * from "./alerts.js";
 export * from "./alert-runner.js";
 export * from "./webhook.js";
 export * from "./importer.js";
+export * from "./generator.js";
+export * from "./demo.js";
 export * from "./api.js";
 export * from "./receiver.js";
 
