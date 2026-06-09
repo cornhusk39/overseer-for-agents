@@ -1,9 +1,44 @@
-// Public surface of the ingest package: the OTLP/HTTP receiver, the SQLite
-// store, the derived rollups, the alert engine, and the CLI that ties them
-// together. Everything that touches untrusted telemetry lives here, so this is
-// where auth, caps, timeouts, and redaction are enforced before any write.
-//
-// The receiver and store land in M2. For now this exports a name so the
-// bootstrap can prove the package builds and tests run.
+// Public surface of the ingest package: configuration, the SQLite store, the
+// redaction pass, the OTLP mapping, and the HTTP receiver. Everything that
+// touches untrusted telemetry lives here, so auth, caps, timeouts, and
+// redaction are all enforced before any write.
 
-export const INGEST_PACKAGE = "@overseer/ingest" as const;
+import { loadConfig, type IngestConfig } from "./config.js";
+import { Store } from "./store.js";
+import { createIngestServer } from "./receiver.js";
+
+export * from "./config.js";
+export * from "./redaction.js";
+export * from "./store.js";
+export * from "./otlp-mapping.js";
+export * from "./receiver.js";
+
+export interface RunningIngest {
+  store: Store;
+  close: () => Promise<void>;
+}
+
+// Open the store, start the receiver, and resolve once it is accepting
+// connections. The returned close() shuts the server and the database down
+// together so callers (and tests) leave nothing dangling.
+export function startIngest(config: IngestConfig = loadConfig()): Promise<RunningIngest> {
+  const store = new Store(config.dbPath);
+  const server = createIngestServer(config, store);
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(config.port, config.host, () => {
+      server.removeListener("error", reject);
+      resolve({
+        store,
+        close: () =>
+          new Promise<void>((res) => {
+            server.close(() => {
+              store.close();
+              res();
+            });
+          }),
+      });
+    });
+  });
+}

@@ -1,4 +1,5 @@
 {
+  "//": "Imports of @overseer/schema resolve to its built dist via the pnpm symlink, so schema is built before this package is typechecked or built (pnpm -r runs in dependency order). Tests resolve schema from source through the Vitest alias in vitest.config.ts.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
