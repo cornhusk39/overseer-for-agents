@@ -58,7 +58,8 @@ describe("mapRequest", () => {
     expect(child.parentSpanId).toBe("root");
     expect(child.status).toBe("error");
     expect(child.statusMessage).toBe("no slots");
-    // Agent-native enrichment is M3; structural mapping leaves it null.
+    // This span carries no gen_ai attributes, so the semconv mapping leaves the
+    // agent-native fields null.
     expect(child.model).toBeNull();
   });
 

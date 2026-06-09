@@ -15,7 +15,9 @@ import {
   type Run,
   type Agent,
   type RunStatus,
+  type RunRollup,
 } from "@overseer/schema";
+import { computeRollup } from "./rollups.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS agents (
@@ -198,6 +200,9 @@ export class Store {
         const agent = input.agentByRun.get(runId) ?? this.existingAgent(runId) ?? "unknown";
         this.recomputeRun(runId, agent, input.receivedAtMs);
         this.touchAgent(agent, input.receivedAtMs);
+        // Refresh the derived metrics for the run from its full span set. Reads
+        // inside this transaction see the writes above on the same connection.
+        this.recomputeRollup(runId);
       }
     });
     tx(input.spans);
@@ -286,6 +291,58 @@ export class Store {
       });
   }
 
+  // Rebuild a run's rollup row from its current run row and span set. Cheap
+  // enough to run on every ingest because a run's span count is small.
+  private recomputeRollup(runId: string): void {
+    const run = this.getRun(runId);
+    if (!run) return;
+    const rollup = computeRollup(run, this.getSpans(runId));
+    this.db
+      .prepare(
+        `INSERT INTO run_rollups (
+           run_id, agent, status, start_ms, end_ms, duration_ms, span_count,
+           llm_call_count, tool_call_count, tool_error_count, error_count,
+           total_cost_usd, total_input_tokens, total_output_tokens, models
+         ) VALUES (
+           @run_id, @agent, @status, @start_ms, @end_ms, @duration_ms, @span_count,
+           @llm_call_count, @tool_call_count, @tool_error_count, @error_count,
+           @total_cost_usd, @total_input_tokens, @total_output_tokens, @models
+         )
+         ON CONFLICT (run_id) DO UPDATE SET
+           agent = excluded.agent,
+           status = excluded.status,
+           start_ms = excluded.start_ms,
+           end_ms = excluded.end_ms,
+           duration_ms = excluded.duration_ms,
+           span_count = excluded.span_count,
+           llm_call_count = excluded.llm_call_count,
+           tool_call_count = excluded.tool_call_count,
+           tool_error_count = excluded.tool_error_count,
+           error_count = excluded.error_count,
+           total_cost_usd = excluded.total_cost_usd,
+           total_input_tokens = excluded.total_input_tokens,
+           total_output_tokens = excluded.total_output_tokens,
+           models = excluded.models`,
+      )
+      .run({
+        run_id: rollup.runId,
+        agent: rollup.agent,
+        status: rollup.status,
+        start_ms: rollup.startMs,
+        end_ms: rollup.endMs,
+        duration_ms: rollup.durationMs,
+        span_count: rollup.spanCount,
+        llm_call_count: rollup.llmCallCount,
+        tool_call_count: rollup.toolCallCount,
+        tool_error_count: rollup.toolErrorCount,
+        error_count: rollup.errorCount,
+        total_cost_usd: rollup.totalCostUsd,
+        total_input_tokens: rollup.totalInputTokens,
+        total_output_tokens: rollup.totalOutputTokens,
+        models: JSON.stringify(rollup.models),
+      });
+  }
+
   private touchAgent(name: string, seenMs: number): void {
     this.db
       .prepare(
@@ -319,6 +376,34 @@ export class Store {
       .prepare(`SELECT * FROM runs ORDER BY start_ms DESC LIMIT ?`)
       .all(limit) as RunRow[];
     return rows.map(rowToRun);
+  }
+
+  getRollup(runId: string): RunRollup | null {
+    const row = this.db.prepare(`SELECT * FROM run_rollups WHERE run_id = ?`).get(runId) as
+      | RollupRow
+      | undefined;
+    return row ? rowToRollup(row) : null;
+  }
+
+  // Rollups for the most recent runs, optionally narrowed to one agent. This is
+  // the read path behind the runs list and the trends views.
+  listRollups(options: { limit?: number; agent?: string; sinceMs?: number } = {}): RunRollup[] {
+    const limit = options.limit ?? 100;
+    const clauses: string[] = [];
+    const params: Record<string, unknown> = { limit };
+    if (options.agent) {
+      clauses.push("agent = @agent");
+      params.agent = options.agent;
+    }
+    if (options.sinceMs !== undefined) {
+      clauses.push("start_ms >= @sinceMs");
+      params.sinceMs = options.sinceMs;
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM run_rollups ${where} ORDER BY start_ms DESC LIMIT @limit`)
+      .all(params) as RollupRow[];
+    return rows.map(rowToRollup);
   }
 
   listAgents(): Agent[] {
@@ -363,6 +448,44 @@ function rowToRun(row: RunRow): Run {
     startMs: row.start_ms,
     endMs: row.end_ms,
     durationMs: row.duration_ms,
+  };
+}
+
+interface RollupRow {
+  run_id: string;
+  agent: string;
+  status: string;
+  start_ms: number;
+  end_ms: number | null;
+  duration_ms: number | null;
+  span_count: number;
+  llm_call_count: number;
+  tool_call_count: number;
+  tool_error_count: number;
+  error_count: number;
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  models: string;
+}
+
+function rowToRollup(row: RollupRow): RunRollup {
+  return {
+    runId: row.run_id,
+    agent: row.agent,
+    status: row.status as RunStatus,
+    startMs: row.start_ms,
+    endMs: row.end_ms,
+    durationMs: row.duration_ms,
+    spanCount: row.span_count,
+    llmCallCount: row.llm_call_count,
+    toolCallCount: row.tool_call_count,
+    toolErrorCount: row.tool_error_count,
+    errorCount: row.error_count,
+    totalCostUsd: row.total_cost_usd,
+    totalInputTokens: row.total_input_tokens,
+    totalOutputTokens: row.total_output_tokens,
+    models: JSON.parse(row.models) as string[],
   };
 }
 

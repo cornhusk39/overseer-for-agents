@@ -19,6 +19,7 @@ import {
   GEN_AI,
 } from "@overseer/schema";
 import { redactAttributes, scrubString, type RedactionOptions } from "./redaction.js";
+import { deriveAgentNative } from "./semconv-map.js";
 
 export interface MappingOptions {
   maxAttrsPerSpan: number;
@@ -86,6 +87,12 @@ export function mapRequest(req: ExportTraceServiceRequest, options: MappingOptio
           redactionHits += scrubbed.hits;
         }
 
+        const status = statusCodeToString(otlpSpan.status?.code);
+
+        // Lift the known gen_ai.* attributes into agent-native fields. Unknown
+        // attributes stay in the raw bag above; nothing is dropped.
+        const agentNative = deriveAgentNative(redacted.value, { status });
+
         const span: Span = {
           runId: otlpSpan.traceId,
           spanId: otlpSpan.spanId,
@@ -95,19 +102,10 @@ export function mapRequest(req: ExportTraceServiceRequest, options: MappingOptio
           startMs,
           endMs,
           durationMs: Math.max(0, endMs - startMs),
-          status: statusCodeToString(otlpSpan.status?.code),
+          status,
           statusMessage,
           attributes: redacted.value,
-
-          // Agent-native fields are populated by the semconv mapping in M3.
-          // Until then a span carries its structural data and raw attributes.
-          model: null,
-          inputTokens: null,
-          outputTokens: null,
-          costUsd: null,
-          toolName: null,
-          toolOutcome: null,
-          stepIndex: null,
+          ...agentNative,
         };
 
         spans.push(span);

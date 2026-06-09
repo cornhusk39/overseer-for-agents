@@ -9,6 +9,9 @@ import { createIngestServer } from "./receiver.js";
 
 export * from "./config.js";
 export * from "./redaction.js";
+export * from "./pricing.js";
+export * from "./semconv-map.js";
+export * from "./rollups.js";
 export * from "./store.js";
 export * from "./otlp-mapping.js";
 export * from "./receiver.js";
