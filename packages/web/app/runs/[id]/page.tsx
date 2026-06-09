@@ -105,7 +105,20 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           <tbody>
             {spans.map((s) => (
               <tr key={s.spanId}>
-                <td className="mono">{s.name}</td>
+                <td className="mono">
+                  {/* Custom attributes (request ids, feature flags, whatever
+                      the producer attached) are the debugging context; an
+                      expander keeps them one click away without crowding the
+                      table. Native details, no client JS. */}
+                  {Object.keys(s.attributes).length > 0 ? (
+                    <details className="attr-details">
+                      <summary>{s.name}</summary>
+                      <pre className="attr-json">{JSON.stringify(s.attributes, null, 2)}</pre>
+                    </details>
+                  ) : (
+                    s.name
+                  )}
+                </td>
                 <td className="dim">{s.model ?? <span className="faint">—</span>}</td>
                 <td className="num">
                   {s.inputTokens !== null || s.outputTokens !== null
