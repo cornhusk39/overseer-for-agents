@@ -11,6 +11,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Store } from "./store.js";
 import { importCassetteFile, importCassetteDir } from "./importer.js";
 import { dispatchAlerts } from "./alert-runner.js";
@@ -19,8 +20,15 @@ import { type FiredAlert } from "./alerts.js";
 import { seedDemo, exportSnapshot, DEFAULT_ALERT_RULES } from "./demo.js";
 import { ALERT_METRICS, formatMetricValue, type AlertMetric } from "./alerts.js";
 
+// Default paths resolve from the workspace root (three levels up from this
+// file, whether running from src via tsx or dist via node), not the current
+// working directory. Otherwise `pnpm --filter @overseer/ingest exec overseer
+// seed-demo` would scatter files under packages/ingest depending on where pnpm
+// happened to run it. An explicit env var always wins.
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
+
 function dbPath(): string {
-  return process.env.OVERSEER_DB_PATH?.trim() || "./data/overseer.db";
+  return process.env.OVERSEER_DB_PATH?.trim() || path.join(workspaceRoot, "data", "overseer.db");
 }
 
 function webhookFormat(): WebhookFormat {
@@ -196,9 +204,10 @@ async function rulesCommand(args: string[]): Promise<void> {
 // Seed a fresh demo database with synthetic traffic and default alert rules,
 // then export the JSON snapshot the read-only dashboard serves.
 async function seedDemoCommand(): Promise<void> {
-  const dbTarget = process.env.OVERSEER_DB_PATH?.trim() || "./data/demo.db";
+  const dbTarget = process.env.OVERSEER_DB_PATH?.trim() || path.join(workspaceRoot, "data", "demo.db");
   const snapshotPath =
-    process.env.OVERSEER_DEMO_SNAPSHOT?.trim() || "packages/web/lib/demo-snapshot.json";
+    process.env.OVERSEER_DEMO_SNAPSHOT?.trim() ||
+    path.join(workspaceRoot, "packages", "web", "lib", "demo-snapshot.json");
 
   // Start clean so re-seeding is reproducible rather than additive.
   await fs.rm(dbTarget, { force: true }).catch(() => {});

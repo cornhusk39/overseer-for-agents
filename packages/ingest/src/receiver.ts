@@ -144,9 +144,20 @@ function sendJson(res: ServerResponse, status: number, body: unknown, close = fa
 
 // Build (but do not start) the ingest HTTP server. The caller owns listen() and
 // close() so tests can bind an ephemeral port and shut it down cleanly.
+//
+// The catch here is the last line of defense: this service faces the network,
+// and an async handler that throws becomes an unhandled rejection, which takes
+// the whole process down. No single request is ever allowed to do that.
 export function createIngestServer(config: IngestConfig, store: Store): Server {
   return createServer((req, res) => {
-    void handle(req, res, config, store);
+    handle(req, res, config, store).catch((err: unknown) => {
+      console.error("ingest: unexpected error handling request:", err);
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: "internal error" }, true);
+      } else {
+        res.destroy();
+      }
+    });
   });
 }
 

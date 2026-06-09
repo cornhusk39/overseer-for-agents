@@ -52,7 +52,15 @@ export function handleRead(method: string, url: URL, store: Store): ReadResult |
   // /api/runs/{id}
   const runMatch = /^\/api\/runs\/([^/]+)$/.exec(path);
   if (runMatch) {
-    const id = decodeURIComponent(runMatch[1] as string);
+    // The id comes off the wire, so malformed percent-encoding is possible and
+    // decodeURIComponent throws on it. Treat an undecodable id as not found
+    // rather than letting the error propagate out of the request handler.
+    let id: string;
+    try {
+      id = decodeURIComponent(runMatch[1] as string);
+    } catch {
+      return { status: 404, body: { error: "run not found" } };
+    }
     const run = store.getRun(id);
     if (!run) return { status: 404, body: { error: "run not found" } };
     return {

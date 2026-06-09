@@ -117,6 +117,16 @@ describe("ingest server", () => {
     expect(res.status).toBe(404);
   });
 
+  it("survives a run id with malformed percent-encoding", async () => {
+    // decodeURIComponent throws on %zz; this must come back as a 404, not take
+    // the process down with an unhandled rejection.
+    const res = await fetch(`${baseUrl}/api/runs/%zz`);
+    expect(res.status).toBe(404);
+    // The server is still alive and serving.
+    const health = await fetch(`${baseUrl}/api/health`);
+    expect(health.status).toBe(200);
+  });
+
   it("accepts a small valid payload", async () => {
     const tiny = buildOtlpRequest({
       serviceName: "b",

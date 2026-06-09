@@ -27,11 +27,17 @@ startIngest(config)
       const format = process.env.OVERSEER_ALERT_FORMAT === "slack" ? "slack" : "discord";
       console.log(`  alerts:       evaluating every ${ALERT_INTERVAL_MS / 1000}s, delivering to a ${format} webhook`);
       setInterval(() => {
-        void dispatchAlerts(running.store, { webhookUrl, format }).then((results) => {
-          for (const r of results) {
-            console.log(`alert "${r.alert.rule.name}" ${r.delivery.ok ? "delivered" : "delivery failed"}`);
-          }
-        });
+        dispatchAlerts(running.store, { webhookUrl, format })
+          .then((results) => {
+            for (const r of results) {
+              console.log(`alert "${r.alert.rule.name}" ${r.delivery.ok ? "delivered" : "delivery failed"}`);
+            }
+          })
+          // An evaluation failure is logged and the next tick tries again; it
+          // must never become an unhandled rejection that kills the service.
+          .catch((err: unknown) => {
+            console.error("alerts: evaluation cycle failed:", err);
+          });
       }, ALERT_INTERVAL_MS).unref();
     }
   })

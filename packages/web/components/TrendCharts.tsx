@@ -39,6 +39,11 @@ function Bars({ values, max }: { values: number[]; max: number }) {
 
 function Line({ values, max, color }: { values: number[]; max: number; color: string }) {
   if (values.length === 0) return null;
+  // A polyline needs two points to draw anything, so a single-bucket series
+  // gets a dot instead of silently rendering an empty chart.
+  if (values.length === 1) {
+    return <circle cx={W / 2} cy={yFor(values[0] as number, max)} r={3} fill={color} />;
+  }
   const points = values.map((v, i) => `${xFor(i, values.length)},${yFor(v, max)}`).join(" ");
   return <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />;
 }
