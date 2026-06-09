@@ -14,6 +14,8 @@ export * from "./semconv-map.js";
 export * from "./rollups.js";
 export * from "./store.js";
 export * from "./otlp-mapping.js";
+export * from "./trends.js";
+export * from "./api.js";
 export * from "./receiver.js";
 
 export interface RunningIngest {

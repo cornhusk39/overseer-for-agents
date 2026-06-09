@@ -15,6 +15,7 @@ import { exportTraceServiceRequestSchema } from "@overseer/schema";
 import type { IngestConfig } from "./config.js";
 import type { Store } from "./store.js";
 import { mapRequest, countSpans } from "./otlp-mapping.js";
+import { handleRead } from "./api.js";
 
 export const TRACES_PATH = "/v1/traces";
 
@@ -155,7 +156,21 @@ async function handle(
   config: IngestConfig,
   store: Store,
 ): Promise<void> {
-  if (req.method !== "POST" || req.url !== TRACES_PATH) {
+  const method = req.method ?? "GET";
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+  // Read API (GET /api/*). Side-effect free and unauthenticated; serves the
+  // dashboard. handleRead returns null for non-/api paths so the write path
+  // below still gets a chance.
+  const readResult = handleRead(method, url, store);
+  if (readResult) {
+    // Allow a browser-side dashboard to read cross-origin if it ever needs to.
+    res.setHeader("access-control-allow-origin", "*");
+    sendJson(res, readResult.status, readResult.body);
+    return;
+  }
+
+  if (method !== "POST" || url.pathname !== TRACES_PATH) {
     sendJson(res, 404, { error: "not found" });
     return;
   }
