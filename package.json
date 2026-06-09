@@ -1,0 +1,25 @@
+{
+  "name": "overseer-for-agents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted observability plane for production LLM agents. OTLP in, agent-native metrics out, one compose file to run it.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" build",
+    "test": "pnpm -r --filter \"./packages/*\" test",
+    "typecheck": "pnpm -r --filter \"./packages/*\" typecheck",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.2",
+    "eslint": "^10.4.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.0",
+    "vitest": "^4.1.8"
+  }
+}
