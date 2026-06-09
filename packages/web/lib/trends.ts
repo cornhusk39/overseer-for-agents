@@ -2,9 +2,15 @@
 // rollups in hand and computes buckets itself instead of calling the ingest
 // trends endpoint. This mirrors the server-side computeTrends so both paths
 // produce identical charts; it is kept here so the web bundle never has to
-// import the ingest package.
+// import the ingest package (which pulls in a native module that has no place
+// in a browser bundle).
 
 import type { RunListItem, TrendBucket } from "./types";
+
+// Cap on how many buckets gap-filling will produce. A run with a wildly wrong
+// timestamp must not explode a chart into millions of empty buckets; past the
+// cap the series stays sparse instead.
+const MAX_FILLED_BUCKETS = 1000;
 
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
@@ -36,9 +42,38 @@ export function computeTrends(runs: RunListItem[], bucketMs: number): TrendBucke
       toolFailureRate: toolCalls === 0 ? 0 : toolErrors / toolCalls,
       totalCostUsd: Math.round(group.reduce((s, r) => s + r.totalCostUsd, 0) * 1_000_000) / 1_000_000,
       totalTokens: group.reduce((s, r) => s + r.totalInputTokens + r.totalOutputTokens, 0),
-      latencyP50Ms: percentile(durations, 50),
-      latencyP95Ms: percentile(durations, 95),
+      latencyP50Ms: durations.length ? percentile(durations, 50) : null,
+      latencyP95Ms: durations.length ? percentile(durations, 95) : null,
     });
   }
-  return out.sort((a, b) => a.startMs - b.startMs);
+  out.sort((a, b) => a.startMs - b.startMs);
+  return fillGaps(out, bucketMs);
+}
+
+// Insert explicit zero buckets for time gaps, so quiet periods render as dips
+// instead of silently compressing out of the chart.
+function fillGaps(sorted: TrendBucket[], bucketMs: number): TrendBucket[] {
+  if (sorted.length < 2) return sorted;
+  const first = sorted[0] as TrendBucket;
+  const last = sorted[sorted.length - 1] as TrendBucket;
+  const span = Math.floor((last.startMs - first.startMs) / bucketMs) + 1;
+  if (span > MAX_FILLED_BUCKETS) return sorted;
+
+  const byStart = new Map(sorted.map((b) => [b.startMs, b]));
+  const filled: TrendBucket[] = [];
+  for (let t = first.startMs; t <= last.startMs; t += bucketMs) {
+    filled.push(
+      byStart.get(t) ?? {
+        startMs: t,
+        runCount: 0,
+        errorRate: 0,
+        toolFailureRate: 0,
+        totalCostUsd: 0,
+        totalTokens: 0,
+        latencyP50Ms: null,
+        latencyP95Ms: null,
+      },
+    );
+  }
+  return filled;
 }

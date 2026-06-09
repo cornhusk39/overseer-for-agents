@@ -18,10 +18,16 @@ export interface ReadResult {
 // One hour. The default trend bucket width when a caller does not specify one.
 const DEFAULT_BUCKET_MS = 60 * 60 * 1000;
 
-function intParam(value: string | null, fallback: number): number {
+// Largest run list a single request can ask for. The read API is meant for the
+// dashboard, not bulk export, so an unbounded ?limit= should not be able to
+// force a full-table serialization.
+const MAX_LIMIT = 1000;
+
+function intParam(value: string | null, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
   if (value === null) return fallback;
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
 }
 
 // Handle a read request. Returns a ReadResult for any /api/* route, or null if
@@ -41,7 +47,7 @@ export function handleRead(method: string, url: URL, store: Store): ReadResult |
 
   if (path === "/api/runs") {
     const agent = url.searchParams.get("agent") ?? undefined;
-    const limit = intParam(url.searchParams.get("limit"), 100);
+    const limit = intParam(url.searchParams.get("limit"), 100, MAX_LIMIT);
     const sinceMs = url.searchParams.has("sinceMs")
       ? intParam(url.searchParams.get("sinceMs"), 0)
       : undefined;

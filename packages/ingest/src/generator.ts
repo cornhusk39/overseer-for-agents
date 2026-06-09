@@ -30,6 +30,17 @@ function randInt(prng: () => number, min: number, max: number): number {
   return Math.floor(prng() * (max - min + 1)) + min;
 }
 
+// A 32-char hex trace id drawn from the seeded PRNG, so generated runs look
+// like real OTLP traces (distinct at a glance in the runs list) while staying
+// fully deterministic for a given seed.
+function randomTraceId(prng: () => number): string {
+  let id = "";
+  for (let i = 0; i < 32; i++) {
+    id += Math.floor(prng() * 16).toString(16);
+  }
+  return id;
+}
+
 function pick<T>(prng: () => number, items: readonly T[]): T {
   return items[Math.floor(prng() * items.length)] as T;
 }
@@ -201,7 +212,7 @@ export function generateTraffic(store: Store, options: GenerateOptions): Generat
     const base = windowStart + (i / options.totalRuns) * windowMs;
     const startMs = Math.round(base + prng() * (windowMs / options.totalRuns));
     const regression = startMs >= regressionStart;
-    const traceId = `gen-${options.seed.toString(16)}-${i.toString().padStart(4, "0")}`;
+    const traceId = randomTraceId(prng);
     const spans = buildRun(prng, agent, traceId, startMs, regression);
     store.ingest({ spans, agentByRun: new Map([[traceId, agent.name]]), receivedAtMs: startMs });
   }

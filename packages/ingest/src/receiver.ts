@@ -44,6 +44,27 @@ export function bearerToken(header: string | undefined): string | null {
 // Validate, map, and persist an already-read request body. Returns the OTLP
 // response and HTTP status. Pure except for the store write, so tests can drive
 // it directly with a string body and an in-memory store.
+// Deepest JSON nesting accepted in a request body. OTLP attribute values are
+// recursive (arrays of kv-lists of arrays...), and both Zod validation and the
+// attribute flattening recurse over them, so attacker-controlled depth means
+// attacker-controlled stack. Real telemetry nests a handful of levels at most.
+const MAX_JSON_DEPTH = 64;
+
+// Iterative depth check, so measuring the depth cannot itself blow the stack.
+function jsonTooDeep(root: unknown, maxDepth: number): boolean {
+  let frontier: unknown[] = [root];
+  for (let depth = 0; frontier.length > 0; depth++) {
+    if (depth > maxDepth) return true;
+    const next: unknown[] = [];
+    for (const node of frontier) {
+      if (Array.isArray(node)) next.push(...node);
+      else if (node && typeof node === "object") next.push(...Object.values(node));
+    }
+    frontier = next;
+  }
+  return false;
+}
+
 export function processTraces(
   rawBody: string,
   config: IngestConfig,
@@ -55,6 +76,10 @@ export function processTraces(
     json = JSON.parse(rawBody);
   } catch {
     return { status: 400, body: { error: "invalid JSON body" } };
+  }
+
+  if (jsonTooDeep(json, MAX_JSON_DEPTH)) {
+    return { status: 400, body: { error: "request body is nested too deeply" } };
   }
 
   const parsed = exportTraceServiceRequestSchema.safeParse(json);

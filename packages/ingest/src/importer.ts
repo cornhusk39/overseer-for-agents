@@ -27,11 +27,17 @@ export interface ImportResult {
   spanCount: number;
 }
 
-// Convert a validated cassette into domain spans.
-export function cassetteToSpans(cassette: Cassette): { spans: Span[]; agent: string; runId: string } {
+// Convert a validated cassette into domain spans. fallbackStartMs anchors a
+// cassette whose recordedAt is unparseable; the import time is a far more
+// truthful default than the epoch, which would bury the run at the bottom of
+// every list and in a 1970 trend bucket.
+export function cassetteToSpans(
+  cassette: Cassette,
+  fallbackStartMs: number,
+): { spans: Span[]; agent: string; runId: string } {
   const runId = cassetteRunId(cassette);
   const parsedStart = Date.parse(cassette.recordedAt);
-  const startMs = Number.isNaN(parsedStart) ? 0 : parsedStart;
+  const startMs = Number.isNaN(parsedStart) ? fallbackStartMs : parsedStart;
   const total = Math.max(1, cassette.result.metrics.latencyMs);
   const steps = cassette.result.trace;
   const slice = total / Math.max(1, steps.length);
@@ -115,10 +121,14 @@ export function cassetteToSpans(cassette: Cassette): { spans: Span[]; agent: str
   return { spans, agent: cassette.agent, runId };
 }
 
-// Import one cassette (already parsed JSON or a raw object) into the store.
+// Import one cassette (already parsed JSON or a raw object) into the store. The
+// run is rebuilt from scratch rather than upserted: a re-recorded cassette can
+// have fewer steps than the previous recording, and leaving the removed steps
+// behind would freeze stale data (including old error statuses) into the run.
 export function importCassette(store: Store, raw: unknown, now: () => number = () => Date.now()): ImportResult {
   const cassette = cassetteSchema.parse(raw);
-  const { spans, agent, runId } = cassetteToSpans(cassette);
+  const { spans, agent, runId } = cassetteToSpans(cassette, now());
+  store.deleteRunData(runId);
   store.ingest({ spans, agentByRun: new Map([[runId, agent]]), receivedAtMs: now() });
   return { runId, agent, spanCount: spans.length };
 }

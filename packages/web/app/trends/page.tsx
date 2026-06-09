@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fetchTrends } from "../../lib/api";
+import { fetchTrends, fetchAgents } from "../../lib/api";
 import type { TrendBucket } from "../../lib/types";
 import { TrendCharts } from "../../components/TrendCharts";
 import { TimeRange, isRangeKey, rangeToSinceMs, type RangeKey } from "../../components/TimeRange";
@@ -15,20 +15,33 @@ const BUCKET_FOR: Record<RangeKey, number> = {
   all: 24 * 60 * 60 * 1000,
 };
 
+// Next delivers a repeated query param as an array; the views only ever want
+// one value, so take the first.
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default async function TrendsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ agent?: string; range?: string }>;
+  searchParams: Promise<{ agent?: string | string[]; range?: string | string[] }>;
 }) {
   const params = await searchParams;
-  const agent = params.agent;
-  const range: RangeKey = isRangeKey(params.range) ? params.range : "7d";
+  const agent = first(params.agent);
+  const rangeParam = first(params.range);
+  const range: RangeKey = isRangeKey(rangeParam) ? rangeParam : "7d";
   const sinceMs = rangeToSinceMs(range);
 
   let buckets: TrendBucket[] = [];
+  let agentNames: string[] = [];
   let failed = false;
   try {
-    buckets = await fetchTrends({ agent, sinceMs, bucketMs: BUCKET_FOR[range] });
+    const [trendBuckets, agents] = await Promise.all([
+      fetchTrends({ agent, sinceMs, bucketMs: BUCKET_FOR[range] }),
+      fetchAgents(),
+    ]);
+    buckets = trendBuckets;
+    agentNames = agents.map((a) => a.name);
   } catch {
     failed = true;
   }
@@ -38,30 +51,38 @@ export default async function TrendsPage({
       <div className="page-head">
         <div>
           <h1>Trends</h1>
-          <div className="sub">
-            {agent ? (
-              <>
-                <span className="mono">{agent}</span>
-                {" · "}
-                <Link href="/trends" className="dim">
-                  all agents
-                </Link>
-              </>
-            ) : (
-              "Cost, tokens, latency, and failure rates over time"
-            )}
-          </div>
+          <div className="sub">Cost, tokens, latency, and failure rates over time</div>
         </div>
         <TimeRange basePath="/trends" current={range} agent={agent} />
       </div>
 
       {failed && <div className="banner-error">Could not reach the ingest API.</div>}
 
-      {buckets.length === 0 ? (
-        <div className="empty">No data in this window.</div>
-      ) : (
-        <TrendCharts buckets={buckets} />
+      {/* Scope the charts to one agent. Mirrors the time-range pills so the two
+          filters compose through the same URL params. */}
+      {!failed && agentNames.length > 1 && (
+        <div className="filters" style={{ marginBottom: 18 }}>
+          <Link href={`/trends?range=${range}`} className={agent ? "" : "active"}>
+            All agents
+          </Link>
+          {agentNames.map((name) => (
+            <Link
+              key={name}
+              href={`/trends?range=${range}&agent=${encodeURIComponent(name)}`}
+              className={agent === name ? "active" : ""}
+            >
+              {name}
+            </Link>
+          ))}
+        </div>
       )}
+
+      {!failed &&
+        (buckets.length === 0 ? (
+          <div className="empty">No data in this window.</div>
+        ) : (
+          <TrendCharts buckets={buckets} />
+        ))}
     </div>
   );
 }

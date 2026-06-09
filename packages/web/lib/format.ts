@@ -5,11 +5,15 @@
 
 // Format a US dollar amount. Sub-cent costs are common for a single agent run,
 // so we keep enough precision to tell 0.0004 from 0.0009 rather than rounding
-// both to "$0.00".
+// both to "$0.00". Large totals get thousands separators so they scan the same
+// way the token counts next to them do.
 export function formatUsd(amount: number): string {
   if (!Number.isFinite(amount)) return "$0.00";
   const decimals = amount !== 0 && Math.abs(amount) < 0.01 ? 4 : 2;
-  return `$${amount.toFixed(decimals)}`;
+  return `$${amount.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
 }
 
 // Format a token count with thousands separators.
@@ -18,12 +22,14 @@ export function formatTokens(count: number): string {
   return Math.round(count).toLocaleString("en-US");
 }
 
-// Format a duration in milliseconds, switching to seconds once it gets long
-// enough that the millisecond digits stop carrying useful information.
+// Format a duration in milliseconds, escalating units as it grows so a
+// three-hour agent run reads "3.0 h" rather than "10800.00 s".
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "0 ms";
   if (ms < 1000) return `${Math.round(ms)} ms`;
-  return `${(ms / 1000).toFixed(2)} s`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(2)} s`;
+  if (ms < 3_600_000) return `${(ms / 60_000).toFixed(1)} m`;
+  return `${(ms / 3_600_000).toFixed(1)} h`;
 }
 
 // Format a 0..1 fraction as a percentage. Whole numbers drop the decimal so a

@@ -46,6 +46,10 @@ export interface RecordedSpan {
 function toAnyValue(v: AttributeValue): AnyValue {
   if (typeof v === "string") return { stringValue: v };
   if (typeof v === "boolean") return { boolValue: v };
+  // NaN and Infinity stringify to null in JSON, which the receiver rejects,
+  // and one bad computed value must not cost the whole run its telemetry. Ship
+  // them as strings instead so the trace still lands.
+  if (!Number.isFinite(v)) return { stringValue: String(v) };
   // Integers ride as OTLP int strings; non-integers as doubles.
   return Number.isInteger(v) ? { intValue: String(v) } : { doubleValue: v };
 }

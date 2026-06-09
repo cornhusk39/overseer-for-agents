@@ -18,6 +18,8 @@ export interface TrendBucket {
   toolFailureRate: number;
   totalCostUsd: number;
   totalTokens: number;
-  latencyP50Ms: number;
-  latencyP95Ms: number;
+  // Null when a bucket has no completed runs; charts skip the point rather
+  // than drawing a misleading dip to zero.
+  latencyP50Ms: number | null;
+  latencyP95Ms: number | null;
 }

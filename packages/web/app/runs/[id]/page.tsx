@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { fetchRun } from "../../../lib/api";
+import { fetchRun, dataNowMs } from "../../../lib/api";
 import { StatusBadge } from "../../../components/StatusBadge";
 import { Waterfall } from "../../../components/Waterfall";
 import { formatUsd, formatTokens, formatDuration, formatRelativeTime } from "../../../lib/format";
@@ -14,6 +14,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
   const { run, rollup, spans } = detail;
   const tools = spans.filter((s) => s.toolName);
+  const nowMs = dataNowMs();
 
   return (
     <div className="container">
@@ -34,17 +35,19 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
               {run.agent}
             </Link>
             {" · "}
-            {formatRelativeTime(run.startMs)}
+            {formatRelativeTime(run.startMs, nowMs)}
           </div>
         </div>
       </div>
 
       <div className="grid grid-4" style={{ marginBottom: 22 }}>
         <Stat label="Duration" value={run.durationMs === null ? "running" : formatDuration(run.durationMs)} />
-        <Stat label="Cost" value={formatUsd(rollup?.totalCostUsd ?? 0)} />
+        {/* A missing rollup means "not computed yet", which is not the same
+            claim as "$0.00"; show a dash rather than inventing a number. */}
+        <Stat label="Cost" value={rollup ? formatUsd(rollup.totalCostUsd) : "—"} />
         <Stat
           label="Tokens"
-          value={formatTokens((rollup?.totalInputTokens ?? 0) + (rollup?.totalOutputTokens ?? 0))}
+          value={rollup ? formatTokens(rollup.totalInputTokens + rollup.totalOutputTokens) : "—"}
         />
         <Stat label="Spans" value={String(spans.length)} />
       </div>
@@ -60,9 +63,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           <table className="table">
             <thead>
               <tr>
-                <th>Tool</th>
-                <th>Outcome</th>
-                <th>Duration</th>
+                <th scope="col">Tool</th>
+                <th scope="col">Outcome</th>
+                <th scope="col">Duration</th>
               </tr>
             </thead>
             <tbody>
@@ -70,7 +73,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                 <tr key={t.spanId}>
                   <td className="mono">{t.toolName}</td>
                   <td>
-                    <span className={`badge ${t.toolOutcome === "error" ? "error" : "ok"}`}>
+                    {/* Unknown outcome gets a neutral badge; painting it green
+                        would visually claim a success nobody recorded. */}
+                    <span
+                      className={`badge ${t.toolOutcome === "error" ? "error" : t.toolOutcome === "success" ? "ok" : "unset"}`}
+                    >
                       <span className="dot" />
                       {t.toolOutcome ?? "unknown"}
                     </span>
@@ -88,11 +95,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <table className="table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Model</th>
-              <th>Tokens</th>
-              <th>Cost</th>
-              <th>Status</th>
+              <th scope="col">Name</th>
+              <th scope="col">Model</th>
+              <th scope="col">Tokens</th>
+              <th scope="col">Cost</th>
+              <th scope="col">Status</th>
             </tr>
           </thead>
           <tbody>

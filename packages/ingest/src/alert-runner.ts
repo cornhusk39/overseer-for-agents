@@ -19,19 +19,31 @@ export interface EvaluateOptions {
   idGen?: () => string;
 }
 
+// A firing along with the persisted event id, so delivery can mark the event
+// delivered once the webhook post succeeds.
+export interface FiredAlertWithEvent extends FiredAlert {
+  eventId: string;
+}
+
 // Evaluate all enabled rules and return the ones that fired this cycle. Each
 // firing is also persisted as an alert event, which is what the cooldown reads
 // on the next cycle.
-export function evaluateAlerts(store: Store, options: EvaluateOptions = {}): FiredAlert[] {
+export function evaluateAlerts(store: Store, options: EvaluateOptions = {}): FiredAlertWithEvent[] {
   const now = options.now ?? (() => Date.now());
   const cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS;
   const idGen = options.idGen ?? (() => randomUUID());
   const firedAtMs = now();
 
-  const fired: FiredAlert[] = [];
+  const fired: FiredAlertWithEvent[] = [];
   for (const rule of store.listAlertRules({ enabledOnly: true })) {
-    // Newest runs first; the engine takes the rule's window off the front.
-    const recent = store.listRollups({ agent: rule.agent ?? undefined, limit: rule.windowRuns });
+    // Newest completed runs first; the engine takes the rule's window off the
+    // front. In-flight runs are excluded so they cannot dilute the rates or
+    // shrink the latency sample while still counting toward a "full" window.
+    const recent = store.listRollups({
+      agent: rule.agent ?? undefined,
+      limit: rule.windowRuns,
+      completedOnly: true,
+    });
     const evaluation = evaluateRule(rule, recent);
     if (!evaluation.fire) continue;
 
@@ -49,7 +61,7 @@ export function evaluateAlerts(store: Store, options: EvaluateOptions = {}): Fir
       delivered: false,
     };
     store.insertAlertEvent(event);
-    fired.push({ rule, observed: evaluation.observed, firedAtMs });
+    fired.push({ rule, observed: evaluation.observed, firedAtMs, eventId: event.id });
   }
   return fired;
 }
@@ -75,6 +87,7 @@ export async function dispatchAlerts(store: Store, options: DispatchOptions): Pr
   for (const alert of fired) {
     const payload = formatWebhookPayload(alert, format, new Date(alert.firedAtMs).toISOString());
     const delivery = await deliverWebhook(options.webhookUrl, payload, options.fetchImpl);
+    if (delivery.ok) store.markAlertDelivered(alert.eventId);
     results.push({ alert, delivery });
   }
   return results;

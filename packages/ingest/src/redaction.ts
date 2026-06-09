@@ -27,8 +27,11 @@ export interface RedactionRule {
 // catch so the replacement label is the most informative one.
 export const DEFAULT_RULES: RedactionRule[] = [
   {
+    // Local part and domain are length-bounded per the RFC limits, which also
+    // keeps the pattern from backtracking quadratically on long junk strings.
+    // Input is additionally length-capped before it ever reaches the scrubbers.
     name: "email",
-    pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+    pattern: /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}/g,
     replacement: "[redacted-email]",
   },
   {

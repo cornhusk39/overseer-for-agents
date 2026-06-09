@@ -13,9 +13,16 @@ export interface TrendBucket {
   toolFailureRate: number;
   totalCostUsd: number;
   totalTokens: number;
-  latencyP50Ms: number;
-  latencyP95Ms: number;
+  // Null when the bucket has no completed runs to measure. Charts skip null
+  // rather than drawing a misleading dip to zero.
+  latencyP50Ms: number | null;
+  latencyP95Ms: number | null;
 }
+
+// Cap on how many buckets gap-filling will produce. A run with a wildly wrong
+// timestamp (say, the epoch) must not explode a 7-day chart into millions of
+// empty buckets; past the cap the series stays sparse instead.
+const MAX_FILLED_BUCKETS = 1000;
 
 // Nearest-rank percentile over a list of numbers. Returns 0 for an empty list,
 // which is the sensible "nothing happened" value for a latency chart.
@@ -59,11 +66,42 @@ export function computeTrends(rollups: RunRollup[], bucketMs: number): TrendBuck
       toolFailureRate: toolCalls === 0 ? 0 : toolErrors / toolCalls,
       totalCostUsd: Math.round(totalCostUsd * 1_000_000) / 1_000_000,
       totalTokens,
-      latencyP50Ms: percentile(durations, 50),
-      latencyP95Ms: percentile(durations, 95),
+      latencyP50Ms: durations.length ? percentile(durations, 50) : null,
+      latencyP95Ms: durations.length ? percentile(durations, 95) : null,
     });
   }
 
   // Chronological order so the chart reads left to right.
-  return result.sort((a, b) => a.startMs - b.startMs);
+  result.sort((a, b) => a.startMs - b.startMs);
+  return fillGaps(result, bucketMs);
+}
+
+// Insert explicit zero buckets for time gaps. Without them a quiet period
+// compresses out of the chart entirely: two busy days around an outage would
+// render as adjacent points, hiding exactly the event an observability tool
+// exists to show.
+function fillGaps(sorted: TrendBucket[], bucketMs: number): TrendBucket[] {
+  if (sorted.length < 2) return sorted;
+  const first = sorted[0] as TrendBucket;
+  const last = sorted[sorted.length - 1] as TrendBucket;
+  const span = Math.floor((last.startMs - first.startMs) / bucketMs) + 1;
+  if (span > MAX_FILLED_BUCKETS) return sorted;
+
+  const byStart = new Map(sorted.map((b) => [b.startMs, b]));
+  const filled: TrendBucket[] = [];
+  for (let t = first.startMs; t <= last.startMs; t += bucketMs) {
+    filled.push(
+      byStart.get(t) ?? {
+        startMs: t,
+        runCount: 0,
+        errorRate: 0,
+        toolFailureRate: 0,
+        totalCostUsd: 0,
+        totalTokens: 0,
+        latencyP50Ms: null,
+        latencyP95Ms: null,
+      },
+    );
+  }
+  return filled;
 }

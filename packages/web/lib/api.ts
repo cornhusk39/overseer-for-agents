@@ -39,6 +39,14 @@ function snapshotSinceMs(sinceMs: number | undefined): number | undefined {
   return snapshot.generatedAtMs - windowMs;
 }
 
+// The "now" that relative times should be formatted against. In demo mode that
+// is the snapshot's generation time, so runs read "28m ago" forever instead of
+// aging into "3mo ago" while the time filters still claim to show the last 24
+// hours. Live mode uses the real clock.
+export function dataNowMs(): number {
+  return isReadOnly() ? snapshot.generatedAtMs : Date.now();
+}
+
 async function get<T>(path: string): Promise<T> {
   // The timeout keeps a stalled ingest service from hanging page renders
   // indefinitely; a refused connection already fails fast on its own.
@@ -90,7 +98,10 @@ export interface RunDetail {
 }
 
 export async function fetchRun(id: string): Promise<RunDetail | null> {
-  if (isReadOnly()) return snapshot.details[id] ?? null;
+  // hasOwn, not a bare index: the id comes from the URL, and a plain lookup
+  // would resolve names like "constructor" through the prototype chain and
+  // hand the page a function instead of a run.
+  if (isReadOnly()) return Object.hasOwn(snapshot.details, id) ? snapshot.details[id]! : null;
   try {
     return await get<RunDetail>(`/api/runs/${encodeURIComponent(id)}`);
   } catch {

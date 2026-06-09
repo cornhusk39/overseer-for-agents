@@ -9,6 +9,51 @@ function spanClass(span: Span): "llm" | "tool" | "other" {
   return "other";
 }
 
+interface TreeRow {
+  span: Span;
+  depth: number;
+}
+
+// Order spans as a tree walk: each parent first, then its children by start
+// time. A flat sort by start time puts a child that started in the same
+// millisecond above its own parent, which reads backwards. Orphans (parent id
+// pointing at a span we never received) are treated as roots so they still
+// show up.
+function treeOrder(spans: Span[]): TreeRow[] {
+  const byStart = (a: Span, b: Span) => a.startMs - b.startMs || a.spanId.localeCompare(b.spanId);
+  const ids = new Set(spans.map((s) => s.spanId));
+  const children = new Map<string, Span[]>();
+  const roots: Span[] = [];
+
+  for (const span of spans) {
+    const parent = span.parentSpanId && ids.has(span.parentSpanId) ? span.parentSpanId : null;
+    if (parent === null) {
+      roots.push(span);
+    } else {
+      const list = children.get(parent);
+      if (list) list.push(span);
+      else children.set(parent, [span]);
+    }
+  }
+
+  const rows: TreeRow[] = [];
+  const visit = (span: Span, depth: number) => {
+    rows.push({ span, depth });
+    for (const child of (children.get(span.spanId) ?? []).sort(byStart)) {
+      visit(child, depth + 1);
+    }
+  };
+  for (const root of roots.sort(byStart)) visit(root, 0);
+  return rows;
+}
+
+function depthClass(depth: number): string {
+  if (depth === 0) return "";
+  if (depth === 1) return "depth-1";
+  if (depth === 2) return "depth-2";
+  return "depth-3plus";
+}
+
 // The trace waterfall. Spans are laid out on a shared timeline: each bar's
 // horizontal position is its offset from the run start, its width its duration.
 // This is the view that makes a slow or failing step obvious at a glance.
@@ -22,21 +67,24 @@ export function Waterfall({ spans }: { spans: Span[] }) {
   // Guard against a zero-width run (all spans at the same instant).
   const total = Math.max(1, maxEnd - minStart);
 
-  // Sort by start so the waterfall cascades top to bottom in execution order.
-  const ordered = [...spans].sort((a, b) => a.startMs - b.startMs || a.spanId.localeCompare(b.spanId));
-
   return (
     <div className="waterfall">
-      {ordered.map((span) => {
+      {treeOrder(spans).map(({ span, depth }) => {
         const cls = spanClass(span);
         const left = ((span.startMs - minStart) / total) * 100;
         const width = Math.max(0.5, (span.durationMs / total) * 100);
-        const barClass = span.status === "error" ? "errored" : cls;
+        const errored = span.status === "error";
+        const barClass = errored ? "errored" : cls;
         return (
           <div className="wf-row" key={`${span.runId}:${span.spanId}`}>
-            <div className="wf-name" title={span.name}>
+            <div className={`wf-name ${depthClass(depth)}`} title={span.name}>
               <span className={`kind-pip ${cls}`} />
               {span.name}
+              {errored && (
+                <span className="wf-err" aria-label="errored span">
+                  ✕
+                </span>
+              )}
             </div>
             <div className="wf-track">
               <div

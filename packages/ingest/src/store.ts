@@ -387,8 +387,13 @@ export class Store {
   }
 
   // Rollups for the most recent runs, optionally narrowed to one agent. This is
-  // the read path behind the runs list and the trends views.
-  listRollups(options: { limit?: number; agent?: string; sinceMs?: number } = {}): RunRollup[] {
+  // the read path behind the runs list, the trends views, and alert windows.
+  // completedOnly excludes in-flight runs, which matters for alerts: a window
+  // padded with runs that have not finished yet would dilute the error rate and
+  // compute latency over fewer samples than the window claims.
+  listRollups(
+    options: { limit?: number; agent?: string; sinceMs?: number; completedOnly?: boolean } = {},
+  ): RunRollup[] {
     const limit = options.limit ?? 100;
     const clauses: string[] = [];
     const params: Record<string, unknown> = { limit };
@@ -400,11 +405,27 @@ export class Store {
       clauses.push("start_ms >= @sinceMs");
       params.sinceMs = options.sinceMs;
     }
+    if (options.completedOnly) {
+      clauses.push("status != 'running'");
+    }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.db
       .prepare(`SELECT * FROM run_rollups ${where} ORDER BY start_ms DESC LIMIT @limit`)
       .all(params) as RollupRow[];
     return rows.map(rowToRollup);
+  }
+
+  // Remove every stored trace of a run so it can be rebuilt from scratch. The
+  // cassette importer needs this: a re-recorded cassette can have fewer steps
+  // than the previous recording, and upserts alone would leave the removed
+  // steps (and their error statuses) behind forever.
+  deleteRunData(runId: string): void {
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM spans WHERE run_id = ?`).run(runId);
+      this.db.prepare(`DELETE FROM run_rollups WHERE run_id = ?`).run(runId);
+      this.db.prepare(`DELETE FROM runs WHERE id = ?`).run(runId);
+    });
+    tx();
   }
 
   listAgents(): Agent[] {
@@ -463,6 +484,13 @@ export class Store {
       .prepare(`SELECT MAX(fired_at_ms) AS last FROM alert_events WHERE rule_id = ?`)
       .get(ruleId) as { last: number | null };
     return row.last;
+  }
+
+  // Record that an alert event's webhook delivery succeeded. Events are
+  // inserted undelivered, then flipped here after the post, so the history
+  // honestly reflects which alerts actually reached the webhook.
+  markAlertDelivered(eventId: string): void {
+    this.db.prepare(`UPDATE alert_events SET delivered = 1 WHERE id = ?`).run(eventId);
   }
 
   insertAlertEvent(event: AlertEvent): void {
